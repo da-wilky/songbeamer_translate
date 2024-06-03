@@ -1,0 +1,19 @@
+services:
+  songbeamer-translate:
+    image: dawilky/songbeamer_translate
+
+    #   If you want the service to be accessible on port 8000 on your machine
+    ports:
+      - "8000:80"
+
+    #   If you want to access the service from other containers inside the same networks (e.g. containerized nginx)
+    #expose:
+    #  - "80"
+
+    #   Example Configuration if using traefik
+    #labels:
+    #  - "traefik.enable=true"
+    #  - "traefik.http.routers.songbeamer-translate.entrypoints=web"
+    #  - "traefik.http.routers.songbeamer-translate.rule=Host(`translate.example.com`)"
+    #  - "traefik.http.routers.songbeamer-translate.service=songbeamer-translate"
+    #  - "traefik.http.services.songbeamer-translate.loadbalancer.server.port=80"
