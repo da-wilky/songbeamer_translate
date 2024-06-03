@@ -17,3 +17,7 @@ services:
     #  - "traefik.http.routers.songbeamer-translate.rule=Host(`translate.example.com`)"
     #  - "traefik.http.routers.songbeamer-translate.service=songbeamer-translate"
     #  - "traefik.http.services.songbeamer-translate.loadbalancer.server.port=80"
+
+    #   If you want to use a custom favicon
+    #volumes:
+    #  - ./favicon.ico:/dist/favicon.ico:ro
