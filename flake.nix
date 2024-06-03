@@ -11,8 +11,7 @@
       version = "0.1.0";
       image = {
         inherit name version;
-        registry = "dr.swilk.eu";
-        repository = "sw";
+        repository = "dawilky";
       };
 
       docker =
@@ -39,7 +38,7 @@
           '';
         in
         { version ? image.version }: pkgs.dockerTools.buildLayeredImage {
-          name = "${image.registry}/${image.repository}/${image.name}";
+          name = "${image.repository}/${image.name}";
           tag = "${version}";
           created = "now";
 
