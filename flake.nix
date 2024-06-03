@@ -81,10 +81,10 @@
             WorkingDir = "/dist";
             Healthcheck = {
               Test = [ "CMD" "curl" "-sSf" "http://localhost" ];
-              Interval = 60 * 1000000000;
-              Timeout = 5 * 1000000000;
-              Retries = 3;
-              StartInterval = 3 * 1000000000;
+              Interval = 5 * 1000000000;
+              Timeout = 2 * 1000000000;
+              Retries = 2;
+              StartPeriod = 2 * 1000000000;
             };
             Cmd = [ "nginx" "-c" nginxConf ];
           };
