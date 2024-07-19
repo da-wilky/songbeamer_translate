@@ -2,6 +2,9 @@ services:
   songbeamer-translate:
     image: dawilky/songbeamer_translate
 
+    #   If you want the container to start when system starts
+    restart: unless-stopped
+
     #   If you want the service to be accessible on port 8000 on your machine
     ports:
       - "8000:80"
