@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { mdiThemeLightDark } from '@mdi/js'
 import ISO6391 from 'iso-639-1'
-import { Translate } from 'translate'
 import { ref, watch } from 'vue'
 import { useTheme } from 'vuetify'
 const theme = useTheme()
-const translate = Translate({ engine: 'google' })
 
 const languages: Array<{ name: string; code: string }> = []
 for (let i = 0; i < ISO6391.getAllNames().length; i++) {
@@ -28,39 +26,66 @@ const sbOutputText = ref('')
 const transErr = ref(false)
 const transLoading = ref(false)
 
+let pendingTranslation: AbortController | undefined
+let debounceTimer: ReturnType<typeof setTimeout> | undefined
+
+async function fetchTranslation(text: string, from: string, to: string, signal: AbortSignal) {
+  const params = new URLSearchParams({ client: 'gtx', sl: from, tl: to, dt: 't', q: text })
+  const res = await fetch(`https://translate.googleapis.com/translate_a/single?${params}`, {
+    signal
+  })
+  if (!res.ok) throw new Error(`Translation request failed: ${res.status}`)
+  const data = await res.json()
+  if (!Array.isArray(data?.[0])) throw new Error('Unexpected translation response')
+  return data[0].map((segment: [string]) => segment[0]).join('')
+}
+
 async function triggerTranslate() {
+  pendingTranslation?.abort()
+  const controller = new AbortController()
+  pendingTranslation = controller
+
   transErr.value = false
-  transLoading.value = true
-  inputText.value = inputText.value.trim()
-  if (inputText.value === '') {
+  const text = inputText.value.trim()
+  if (text === '') {
     outputText.value = ''
     transLoading.value = false
     return
   }
-  const res = await translate(inputText.value, {
-    from: srcLanguage.value,
-    to: dstLanguage.value
-  }).catch((err) => {
+  transLoading.value = true
+  try {
+    outputText.value = await fetchTranslation(
+      text,
+      srcLanguage.value,
+      dstLanguage.value,
+      controller.signal
+    )
+  } catch (err) {
+    if (controller.signal.aborted) return
     console.error(err)
     outputText.value = ''
     transErr.value = true
-  })
-  if (res) outputText.value = res
+  }
   transLoading.value = false
 }
 
 function triggerPutTogether() {
   let res = ''
-  const regex = /(Refrain|Chorus|Strophe|Vers|Bridge|Intro|Outro|Pre-Chorus|Pre-Refrain)\s?\d*/
+  const sectionHeading =
+    /^(Refrain|Chorus|Strophe|Verse?|Bridge|Intro|Outro|Pre-Chorus|Pre-Refrain)(\s*\d+[a-z]?)?$/i
 
-  const linesOut = outputText.value.split('\n')
-  inputText.value.split('\n').forEach((line, i) => {
-    if (line === '' || line === '\n' || line === '---' || regex.test(line)) {
-      res += `${line}\n`
-      return
-    }
-    res += `${line}\n${linesOut[i]}\n`
-  })
+  const linesOut = outputText.value.trim().split(/\r?\n/)
+  inputText.value
+    .trim()
+    .split(/\r?\n/)
+    .forEach((line, i) => {
+      const trimmed = line.trim()
+      if (trimmed === '' || trimmed === '---' || sectionHeading.test(trimmed)) {
+        res += `${line}\n`
+        return
+      }
+      res += `${line}\n${linesOut[i] ?? ''}\n`
+    })
   sbOutputText.value = res
 }
 
@@ -69,13 +94,18 @@ const toggleTheme = () => {
 }
 
 watch(
-  () => [inputText.value, dstLanguage.value, srcLanguage.value],
+  () => [inputText.value, dstLanguage.value, srcLanguage.value, ownTranslation.value],
   () => {
-    if (ownTranslation.value) return
-    triggerTranslate()
+    clearTimeout(debounceTimer)
+    if (ownTranslation.value) {
+      pendingTranslation?.abort()
+      transLoading.value = false
+      return
+    }
+    debounceTimer = setTimeout(triggerTranslate, 500)
   }
 )
-watch(outputText, () => {
+watch([inputText, outputText], () => {
   triggerPutTogether()
 })
 </script>

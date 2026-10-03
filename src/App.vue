@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { RouterView } from 'vue-router';
-import { useTheme } from 'vuetify';
+import { RouterView } from 'vue-router'
+import { useTheme } from 'vuetify'
 
 const theme = useTheme()
 if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {

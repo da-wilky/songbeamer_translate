@@ -5,7 +5,8 @@
 
   outputs = { self, nixpkgs, ... }:
     let
-      pkgs = import nixpkgs { system = "x86_64-linux"; };
+      inherit (nixpkgs) lib;
+      forAllSystems = lib.genAttrs [ "x86_64-linux" "aarch64-linux" ];
 
       name = "songbeamer_translate";
       version = "0.1.0";
@@ -14,7 +15,20 @@
         repository = "dawilky";
       };
 
-      docker =
+      songbeamer-translate = pkgs: pkgs.buildNpmPackage {
+        pname = "songbeamer-translate";
+        inherit version;
+        nodejs = pkgs.nodejs_24;
+        npmDepsHash = "sha256-nIDY1vRB3xDcW1UlVTYTWaVjtOp8EL2KRlkx23Sm85w=";
+        src = ./.;
+        installPhase = ''
+          runHook preInstall
+          cp -r dist $out
+          runHook postInstall
+        '';
+      };
+
+      docker = pkgs:
         let
           nginxPort = "80";
           nginxConf = pkgs.writeText "nginx.conf" ''
@@ -24,17 +38,27 @@
             pid /dev/null;
             events {}
             http {
-              include /conf/mime.types;
+              include ${pkgs.nginx}/conf/mime.types;
               access_log /dev/stdout;
+              server_tokens off;
               server {
                 listen ${nginxPort};
                 index index.html;
+                root /dist;
+                include ${./nix/nginx-security.conf};
                 location / {
-                  root /dist;
                   try_files $uri $uri/ /index.html;
+                }
+                location /assets/ {
+                  expires 1y;
                 }
               }
             }
+          '';
+          # Real /dist directory (not a store symlink) so a favicon can be bind-mounted over it.
+          dist = pkgs.runCommand "songbeamer-translate-dist" { } ''
+            mkdir -p $out/dist
+            cp -r ${self.packages.${pkgs.stdenv.hostPlatform.system}.songbeamer-translate}/. $out/dist/
           '';
         in
         { version ? image.version }: pkgs.dockerTools.buildLayeredImage {
@@ -42,29 +66,14 @@
           tag = "${version}";
           created = "now";
 
-          contents =
-            let
-              songbeamer-translate = pkgs.buildNpmPackage {
-                name = "songbeamer-translate";
-                buildInputs = with pkgs; [
-                  nodejs_22
-                ];
-                npmDepsHash = "sha256-/W5N3G3fzsINNA3pKHthJFmZLZ+x/aANIDZDKb1agB8=";
-                src = ./.;
-                installPhase = ''
-                  mkdir -p $out/dist
-                  cp -r dist $out/
-                '';
-              };
-            in
-            with pkgs; [
-              coreutils
-              bashInteractive
-              curl
-              fakeNss
-              nginx
-              songbeamer-translate
-            ];
+          contents = with pkgs; [
+            coreutils
+            bashInteractive
+            curl
+            fakeNss
+            nginx
+            dist
+          ];
 
           extraCommands = ''
             mkdir -p tmp/nginx_client_body
@@ -91,24 +100,56 @@
         };
     in
     {
-      devShells.x86_64-linux.default = pkgs.mkShell {
-        packages = with pkgs; [
-          # Made available on the CLI
-          nodejs_22
-          nixpkgs-fmt
-        ];
+      devShells = forAllSystems (system:
+        let pkgs = nixpkgs.legacyPackages.${system}; in {
+          default = pkgs.mkShell {
+            packages = with pkgs; [
+              # Made available on the CLI
+              nodejs_24
+              nixpkgs-fmt
+            ];
 
-        shellHook = ''
-          echo
-          echo -e "\033[0;32mWelcome to the SongBeamer Translation development environment!\033[0m"
-          echo
-        '';
-      };
+            # Keep @playwright/test in package.json pinned to this playwright-driver version.
+            PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
+            PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
 
-      formatter.x86_64-linux = pkgs.nixpkgs-fmt;
+            shellHook = ''
+              echo
+              echo -e "\033[0;32mWelcome to the SongBeamer Translation development environment!\033[0m"
+              echo
+            '';
+          };
+        });
 
-      packages.x86_64-linux.default = docker { version = "latest"; };
-      packages.x86_64-linux.version = docker { };
+      formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixpkgs-fmt);
+
+      packages = forAllSystems (system:
+        let pkgs = nixpkgs.legacyPackages.${system}; in {
+          songbeamer-translate = songbeamer-translate pkgs;
+          default = docker pkgs { version = "latest"; };
+          version = docker pkgs { };
+        });
+
+      nixosModules.default = import ./nix/module.nix self;
+
+      checks = forAllSystems (system: {
+        nixos = nixpkgs.legacyPackages.${system}.testers.runNixOSTest {
+          name = "songbeamer-translate";
+          nodes.machine = {
+            imports = [ self.nixosModules.default ];
+            services.songbeamer-translate = {
+              enable = true;
+              hostName = "localhost";
+            };
+          };
+          testScript = ''
+            machine.wait_for_unit("nginx.service")
+            machine.wait_for_open_port(80)
+            machine.succeed("curl -sSf http://localhost/ | grep -q '<div id=\"app\">'")
+            machine.succeed("curl -sSf http://localhost/some/route | grep -q '<div id=\"app\">'")
+            machine.succeed("curl -sSI http://localhost/ | grep -qi '^content-security-policy:'")
+          '';
+        };
+      });
     };
 }
-
